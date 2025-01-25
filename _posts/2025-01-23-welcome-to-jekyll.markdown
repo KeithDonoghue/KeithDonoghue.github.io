@@ -1,29 +1,47 @@
 ---
 layout: post
-title:  "Welcome to Jekyll!"
+title:  "Grub basics"
 date:   2025-01-23 15:35:19 -0300
 categories: jekyll update
 ---
-You’ll find this post in your `_posts` directory. Go ahead and edit it and re-build the site to see your changes. You can rebuild the site in many different ways, but the most common way is to run `jekyll serve`, which launches a web server and auto-regenerates your site when a file is updated.
 
-Jekyll requires blog post files to be named according to the following format:
+The `efibootmgr` command in Linux allows you to view and manage your system's UEFI boot configuration. Let's look at an example output:
 
-`YEAR-MONTH-DAY-title.MARKUP`
+<figure>
+  <img src="/assets/images/efibootmgrOut.png" alt="Output of efibootmgr command showing UEFI boot entries">
+  <figcaption>Terminal output showing UEFI boot configuration</figcaption>
+</figure>
 
-Where `YEAR` is a four-digit number, `MONTH` and `DAY` are both two-digit numbers, and `MARKUP` is the file extension representing the format used in the file. After that, include the necessary front matter. Take a look at the source for this post to get an idea about how it works.
+Let's break down what this output tells us:
 
-Jekyll also offers powerful support for code snippets:
+## Current Configuration
+- **Current Boot Entry**: 0000 (Ubuntu)
+- **Boot Timeout**: 2 seconds
 
-{% highlight ruby %}
-def print_hi(name)
-  puts "Hi, #{name}"
-end
-print_hi('Tom')
-#=> prints 'Hi, Tom' to STDOUT.
-{% endhighlight %}
+## Boot Order
+The system will attempt to boot operating systems in this sequence:
+1. 0000 (Ubuntu)
+2. 0003 (Fedora)
+3. 0002 (Linux Firmware Updater)
 
-Check out the [Jekyll docs][jekyll-docs] for more info on how to get the most out of Jekyll. File all bugs/feature requests at [Jekyll’s GitHub repo][jekyll-gh]. If you have questions, you can ask them on [Jekyll Talk][jekyll-talk].
+## Available Boot Entries
 
-[jekyll-docs]: https://jekyllrb.com/docs/home
-[jekyll-gh]:   https://github.com/jekyll/jekyll
-[jekyll-talk]: https://talk.jekyllrb.com/
+The following table shows all configured boot entries in the system:
+
+| Boot Number | Operating System/Entry    | EFI Path                    |
+|-------------|---------------------------|---------------------------- |
+| Boot0000*   | Ubuntu                    | `\EFI\ubuntu\shimx64.efi`   |
+| Boot0002*   | Linux Firmware Updater    | `\EFI\fedora\fwupdx64.efi`  |
+| Boot0003*   | Fedora                    | `\EFI\fedora\shimx64.efi`   |
+
+All entries are located on the same EFI partition with these details:
+- Partition Type: GPT
+- UUID: 8f756691-3c00-4eef-99e7-d5b15cadf461
+- Partition Location: 0x800,0x9b4000
+
+This configuration shows a dual-boot system with both Ubuntu and Fedora installed, with Ubuntu being the default boot option.
+
+
+I tend not to keep `/boot` itself on a separate partition even if in theory it would be more efficient, I just don't trust the different OS' not to trample eachother. Check out the [official specification][boot-loader-specs] for more (in truth probably waaaay too much) information on how the various boot loaders are supposed to play nice with eachother.
+
+[boot-loader-specs]: https://uapi-group.org/specifications/specs/boot_loader_specification/
