@@ -2,100 +2,89 @@
 layout: post
 title:  "Grub basics"
 date:   2025-01-23 15:35:19 -0300
-categories: jekyll update
+categories: linux bootloader
 ---
 
-I don't know why I care about this, but the grub boot selection menu drives me insane. I don't want a list of 40 different OS configurations, with a recovery option and without, every differnt conmbination of kernel that OS has updated to etc. etc.
+## Introduction
+GRUB’s boot selection menu is an absolute mess I don't know why I care about this, but it drives me insane. Every OS you install dumps its own entries in there, mixing in recovery modes, old kernels, and random tools you never asked for. Instead of a clean, usable bootloader, you end up scrolling through a junk drawer of boot options.
 
-I want one option for each distro, with a nice simple name which loads the normal kernel with the normal settings. I do then want an extra screen with all the rest of the crap if I need it. 
+I want:
+- **One clean entry per OS**, loading the normal kernel with standard settings.
+- **A submenu for advanced options**, containing recovery modes and older kernels.
+- **A separate tools menu** for utilities like memtest and firmware updates.
 
-I guess I'll also tolerate a tools menu. Right, two menues, one for other OS options, and one for tools -memtest and firmware updater God love them.
+To actually fix this mess, let’s first break down the **boot process**, which consists of:
+1. **UEFI Firmware Phase** – The firmware initializes hardware and selects a bootloader.
+2. **GRUB Phase** – GRUB loads the system configuration and presents the boot menu.
+3. **Kernel Execution** – GRUB hands control over to the Linux kernel.
 
+## Step 1: The UEFI Boot Order
+UEFI firmware stores boot settings in **NVRAM (Non-Volatile RAM)**, which can be managed in Linux using `efibootmgr`. Below is my system’s current UEFI boot order:
 
-Let's first take a tour of the boot process, We have two steps, the EFI firmware phase, followed by the GRUB phase (this is the one that interests us), before finally passing control to the linux kernel.
-
-The `efibootmgr` command in Linux allows you to view and manage your system's UEFI boot configuration. This is what it outputs on my machine:
-
-### Boot Configuration
-
+### Checking Boot Configuration
+```bash
+efibootmgr
+```
+#### **Output:**
 ```html
 BootCurrent: 0000
 Timeout: 2 seconds
 BootOrder: 0000, 0003, 0002
-Boot0000* Ubuntu                          HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/\EFI\ubuntu\shimx64.efi
-Boot0002* Linux Firmware Updater         HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/\EFI\fedora\fwupdx64.efi
-Boot0003* Fedora                         HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/\EFI\fedora\shimx64.efi
+Boot0000* Ubuntu                          HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/EFI/ubuntu/shimx64.efi
+Boot0002* Linux Firmware Updater         HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/EFI/fedora/fwupdx64.efi
+Boot0003* Fedora                         HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)/EFI/fedora/shimx64.efi
 ```
 
-This info is stored  NVRAM (Non-Volatile RAM) on the motherboard, part of the UEFI firmwareand can also be seen in the `/sys/firmware/efi/efivars/` directory after boot.
+### **Key Takeaways**
+- **BootCurrent:** The last booted OS (Ubuntu in this case).
+- **Timeout:** The system waits 2 seconds before selecting the first boot entry.
+- **Boot Order:** The system attempts to boot in this sequence:
+  1. `0000` - Ubuntu
+  2. `0003` - Fedora
+  3. `0002` - Linux Firmware Updater
 
-We can see `HD(1,GPT,8f756691-3c00-4eef-99e7-d5b15cadf461,0x800,0x9b4000)` is almost like a function call which returns the appropriate partition, to wich the path to the .efi file is appended.
+| Boot Number | Entry Name                | EFI File Path                   |
+|-------------|---------------------------|---------------------------------|
+| Boot0000*   | Ubuntu                    | `/EFI/ubuntu/shimx64.efi`       |
+| Boot0002*   | Linux Firmware Updater    | `/EFI/fedora/fwupdx64.efi`      |
+| Boot0003*   | Fedora                    | `/EFI/fedora/shimx64.efi`       |
 
-In our case only the file specified to boot varies, all entries are located on the same EFI partition with these details:
-- Partition number: 1
-- Partition Type: GPT
-- PART_UUID: 8f756691-3c00-4eef-99e7-d5b15cadf461
-- Partition Location: 0x800,0x9b4000
+## Step 2: How UEFI Chooses a Bootloader
+Each UEFI boot entry points to an `.efi` file located on the **EFI System Partition (ESP)**. EFI firmware follows these steps:
+1. **Identifies the boot partition** (Partition 1, formatted as FAT32, with PARTUUID `8f756691-3c00-4eef-99e7-d5b15cadf461`).
+2. **Executes the `.efi` bootloader file** specified in the boot entry.
+3. **Loads GRUB (via `shimx64.efi`)**, which then loads `grubx64.efi`.
 
-## Current Configuration
-- **BootCurrent**: 0000 (Ubuntu) - System that last booted, i.e. whatever booted the current system 
-- **Timeout**: 2 seconds - How long to wait before running the highest priority boot option.
+#### **Why Use `shimx64.efi` Instead of `grubx64.efi`?**
+- `shimx64.efi` is **signed by Microsoft**, allowing it to run even with Secure Boot enabled.
+- It acts as a **thin chainloader**, passing control to `grubx64.efi`, which is not directly signed.
 
-## Boot Order
-The system will attempt to boot operating systems in this sequence:
-1. 0000 (Ubuntu)
-2. 0003 (Fedora)
-3. 0002 (Linux Firmware Updater)
+## Step 3: The GRUB Boot Process
+Once `grubx64.efi` is executed, it loads a small **preliminary GRUB configuration file** stored on the ESP, usually just grub.cfg in the same directory as `grubx64.efi`. My understanding here is that it is necessary to invoke grub in order to be able to mount the `/` or `/boot` system in case they are non FAT32 file systems.
 
-## Available Boot Entries
-
-The following table shows all configured boot entries in the system:
-
-| Boot Number | Operating System/Entry    | EFI Path                    |
-|-------------|---------------------------|---------------------------- |
-| Boot0000*   | Ubuntu                    | `\EFI\ubuntu\shimx64.efi`   |
-| Boot0002*   | Linux Firmware Updater    | `\EFI\fedora\fwupdx64.efi`  |
-| Boot0003*   | Fedora                    | `\EFI\fedora\shimx64.efi`   |
-
-
-
-This specifies a partition to mount, this is shown in lsblk as the PARTUUID i.e. the partition ID independent of the filesystem the partition is formatted with, EFI firmware only understand FAT32.
-
-It then executes the file specified. This is usually shimx64.efi in our case, i.e. an thin chainloader basically which just hands over to grubx64.efi. The shimx64.efi file however is signed by microsoft and thus can be used even with secure boot, unlike if we were to use grubx64.efi directly.
-
-
-This initial grub runs a thin grub.cfg, as the main /boot partition has not yet been mounted. The UUID of the filesystem(not partition) is specified as / or /boot and from there the path to the proper grub.cfg file is used.
-
-
-
-
-Let's break down what this output tells us:
-
-
-
-This configuration shows a dual-boot system with both Ubuntu and Fedora installed, with Ubuntu being the default boot option.
-
-### GRUB Configuration
-
-### File: `/boot/efi/EFI/ubuntu/grub.cfg`
-
-```
-search.fs_uuid 1eb5e7ee-43ad-40f6-b862-7986c8464659 root 
+### Example: Initial GRUB Configuration Files
+#### **Ubuntu GRUB Config (`/boot/efi/EFI/ubuntu/grub.cfg`)**
+```bash
+search.fs_uuid 1eb5e7ee-43ad-40f6-b862-7986c8464659 root
 set prefix=($root)'/boot/grub'
 configfile $prefix/grub.cfg
 ```
 
-
-### File: `/boot/efi/EFI/fedora/grub.cfg`
-
-```
+#### **Fedora GRUB Config (`/boot/efi/EFI/fedora/grub.cfg`)**
+```bash
 search --no-floppy --root-dev-only --fs-uuid --set=dev a7cdf71e-2219-423a-ac09-d6a020c22409
 set prefix=($dev)/boot/grub2
 export $prefix
 configfile $prefix/grub.cfg
 ```
 
-Aside from the different method used to indicate the appropriate filesystem(not necessarily partition) the two files are the same, they specify the FS and path to the full bootloader config file. This is possible from here, as now that grub is executing any FS type can be mounted.
+### **What’s Happening Here?**
+- **`search.fs_uuid`** finds the correct root filesystem via UUID not PART_UUID.
+- **`set prefix=($root)/boot/grub[2]`** defines where to load the full GRUB configuration.
+- **`configfile $prefix/grub.cfg`** loads the full GRUB menu settings from the OS’s `/boot` partition.
+
+The only meaningful difference here is the different directory they use `/boot/grub` for bunts and `/boot/grub2` for fez.
+
 
 I tend not to keep `/boot` itself on a separate partition even if in theory it would be more efficient, I just don't trust the different OS' not to trample eachother. Check out the [official specification][boot-loader-specs] for more (in truth probably waaaay too much) information on how the various boot loaders are supposed to play nice with eachother.
 
