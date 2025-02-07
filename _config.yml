@@ -29,8 +29,15 @@ github_username:  TheBobbyDazzler
 
 # Build settings
 theme: minima
+
+markdown: GFM
+commonmark:
+  options: ["SMART", "FOOTNOTES"]
+  extensions: ["strikethrough", "autolink", "table", "tagfilter"]
+
 plugins:
   - jekyll-feed
+  - jekyll-commonmark-ghpages
 
 # Exclude from processing.
 # The following items will not be processed, by default.
